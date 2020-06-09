@@ -357,8 +357,8 @@ int os_mutex_try_lock(os_mutex_t lock)
 
 /* event */
 static inline long
-#ifdef CONFIG_PREEMPT_RT_FULL
-do_wait_and_clear(struct rt_completion *x, long timeout, int state)
+#ifdef USE_CUSTOM_COMPLETION
+do_wait_and_clear(struct custom_completion *x, long timeout, int state)
 #else
 do_wait_and_clear(struct completion *x, long timeout, int state)
 #endif
@@ -387,8 +387,8 @@ do_wait_and_clear(struct completion *x, long timeout, int state)
 }
 
 static long __sched
-#ifdef CONFIG_PREEMPT_RT_FULL
-wait_and_clear(struct rt_completion *x, long timeout, int state)
+#ifdef USE_CUSTOM_COMPLETION
+wait_and_clear(struct custom_completion *x, long timeout, int state)
 #else
 wait_and_clear(struct completion *x, long timeout, int state)
 #endif
@@ -409,7 +409,7 @@ os_event_t os_event_alloc(void)
     if (event == NULL)
         return NULL;
 
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef USE_CUSTOM_COMPLETION
     event->done.done = 0;
     init_waitqueue_head(&event->done.wait);
 #else
@@ -426,7 +426,7 @@ void os_event_free(os_event_t event)
 
 void os_event_set(os_event_t event)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef USE_CUSTOM_COMPLETION
     unsigned long flags;
 
     spin_lock_irqsave(&event->done.wait.lock, flags);
@@ -437,14 +437,14 @@ void os_event_set(os_event_t event)
     __wake_up_locked(&event->done.wait, TASK_NORMAL);
 #endif
     spin_unlock_irqrestore(&event->done.wait.lock, flags);
-#else /* CONFIG_PREEMPT_RT_FULL */
+#else /* USE_CUSTOM_COMPLETION */
     complete(&event->done);
-#endif /* CONFIG_PREEMPT_RT_FULL */
+#endif /* USE_CUSTOM_COMPLETION */
 }
 
 void os_event_clear(os_event_t event)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef USE_CUSTOM_COMPLETION
     event->done.done = 0;
 #else
 
@@ -457,7 +457,7 @@ void os_event_clear(os_event_t event)
 
 bool os_event_is_set(os_event_t event)
 {
-#ifdef CONFIG_PREEMPT_RT_FULL
+#ifdef USE_CUSTOM_COMPLETION
     unsigned long flags;
     int ret = 1;
 
@@ -629,7 +629,7 @@ void *os_malloc(size_t size)
     size_t          memsize = sizeof (*mem) + size;
     unsigned char   mtype;
     unsigned long   kmalloc_max_size;
-    
+
     if (size == 0) {
         return (0);
     }
@@ -654,10 +654,10 @@ void *os_malloc(size_t size)
     if (!mem) {
         return (0);
     }
-    
+
     mem->mtype = mtype;
     mem->msize = memsize;
-    
+
     return mem->dat;
 }
 
