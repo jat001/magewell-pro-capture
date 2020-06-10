@@ -1,0 +1,27 @@
+FROM archlinux:latest AS build-stage
+
+RUN sed -i 's/mirror.rackspace.com/mirrors.aliyun.com/' /etc/pacman.d/mirrorlist
+RUN sed -i 's/mirror.leaseweb.net/mirrors.cloud.tencent.com/' /etc/pacman.d/mirrorlist
+
+RUN pacman -Syu base-devel linux linux-headers namcap --needed --noconfirm
+
+RUN echo 'nobody ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+USER nobody
+COPY --chown=nobody:nobody aur/PKGBUILD /code/
+WORKDIR /code
+
+RUN ALL_PROXY=socks5h://host.docker.internal:1080 makepkg -si --needed --noconfirm
+
+RUN /usr/bin/mwcap-control
+RUN /usr/bin/mwcap-info
+
+RUN pacman -Ql magewell-pro-capture-dkms
+RUN dkms status | grep magewell-pro-capture
+RUN namcap PKGBUILD
+RUN [ -z "$(namcap PKGBUILD 2>&1)" ]
+
+RUN makepkg --printsrcinfo > .SRCINFO
+
+FROM scratch AS export-stage
+COPY --from=build-stage /code/.SRCINFO /
