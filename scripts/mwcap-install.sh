@@ -262,7 +262,7 @@ fi
 
 echo_string_nonewline "Checking for previous installation ... "
 KERNEL_STR=`uname -r`
-MODULE_FILE=`find /lib/modules/$KERNEL_STR -iname "ProCapture.ko*"`
+MODULE_FILE=`find /lib/modules/$KERNEL_STR -iname "ProCapture.ko"`
 
 if [ -n "$MODULE_FILE" -o -e "$MODUEL_INSTALL_DIR" ]; then
     echo_string "Found"

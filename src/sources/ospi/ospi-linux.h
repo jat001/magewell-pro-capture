@@ -15,11 +15,7 @@
 #include <linux/version.h>
 #include <linux/fs.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0) || defined CONFIG_PREEMPT_RT_FULL
-#define USE_CUSTOM_COMPLETION
-#endif
-
-#ifndef USE_CUSTOM_COMPLETION
+#ifndef CONFIG_PREEMPT_RT_FULL
 #include <linux/completion.h>
 #endif
 
@@ -165,27 +161,30 @@ int os_mutex_try_lock(os_mutex_t lock);
 
 
 /* event */
-#ifdef USE_CUSTOM_COMPLETION
-struct custom_completion {
-    unsigned int              done;
-    wait_queue_head_t         wait;
+#ifdef CONFIG_PREEMPT_RT_FULL
+struct rt_completion {
+    unsigned int            done;
+    wait_queue_head_t       wait;
 };
 #endif
 
 struct _os_event_t {
-    struct list_head          io_node;
+    struct list_head        io_node;
 
-#ifdef USE_CUSTOM_COMPLETION
-    struct custom_completion  done;
+#ifdef CONFIG_PREEMPT_RT_FULL
+    struct rt_completion    done;
 #else
-    struct completion         done;
+    struct completion       done;
 #endif
 
     // for multi wait
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-   wait_queue_entry_t         waitq;
+#if (defined(CONFIG_PREEMPT_RT) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)) \
+    || LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
+    struct swait_queue      waitq;
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+   wait_queue_entry_t       waitq;
 #else
-   wait_queue_t               waitq;
+   wait_queue_t             waitq;
 #endif
 };
 typedef struct _os_event_t *os_event_t;

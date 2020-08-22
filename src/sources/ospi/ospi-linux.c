@@ -356,51 +356,6 @@ int os_mutex_try_lock(os_mutex_t lock)
 }
 
 /* event */
-static inline long
-#ifdef USE_CUSTOM_COMPLETION
-do_wait_and_clear(struct custom_completion *x, long timeout, int state)
-#else
-do_wait_and_clear(struct completion *x, long timeout, int state)
-#endif
-{
-    if (!x->done) {
-        DECLARE_WAITQUEUE(wait, current);
-
-        wait.flags |= WQ_FLAG_EXCLUSIVE;
-        __add_wait_queue(&x->wait, &wait);
-        do {
-            if (signal_pending_state(state, current)) {
-                timeout = -ERESTARTSYS;
-                break;
-            }
-            __set_current_state(state);
-            spin_unlock_irq(&x->wait.lock);
-            timeout = schedule_timeout(timeout);
-            spin_lock_irq(&x->wait.lock);
-        } while (!x->done && timeout);
-        __remove_wait_queue(&x->wait, &wait);
-        if (!x->done)
-            return timeout;
-    }
-    x->done = 0;
-    return timeout ?: 1;
-}
-
-static long __sched
-#ifdef USE_CUSTOM_COMPLETION
-wait_and_clear(struct custom_completion *x, long timeout, int state)
-#else
-wait_and_clear(struct completion *x, long timeout, int state)
-#endif
-{
-    might_sleep();
-
-    spin_lock_irq(&x->wait.lock);
-    timeout = do_wait_and_clear(x, timeout, state);
-    spin_unlock_irq(&x->wait.lock);
-    return timeout;
-}
-
 os_event_t os_event_alloc(void)
 {
     os_event_t event;
@@ -409,7 +364,7 @@ os_event_t os_event_alloc(void)
     if (event == NULL)
         return NULL;
 
-#ifdef USE_CUSTOM_COMPLETION
+#ifdef CONFIG_PREEMPT_RT_FULL
     event->done.done = 0;
     init_waitqueue_head(&event->done.wait);
 #else
@@ -426,7 +381,7 @@ void os_event_free(os_event_t event)
 
 void os_event_set(os_event_t event)
 {
-#ifdef USE_CUSTOM_COMPLETION
+#ifdef CONFIG_PREEMPT_RT_FULL
     unsigned long flags;
 
     spin_lock_irqsave(&event->done.wait.lock, flags);
@@ -437,14 +392,14 @@ void os_event_set(os_event_t event)
     __wake_up_locked(&event->done.wait, TASK_NORMAL);
 #endif
     spin_unlock_irqrestore(&event->done.wait.lock, flags);
-#else /* USE_CUSTOM_COMPLETION */
+#else /* CONFIG_PREEMPT_RT_FULL */
     complete(&event->done);
-#endif /* USE_CUSTOM_COMPLETION */
+#endif /* CONFIG_PREEMPT_RT_FULL */
 }
 
 void os_event_clear(os_event_t event)
 {
-#ifdef USE_CUSTOM_COMPLETION
+#ifdef CONFIG_PREEMPT_RT_FULL
     event->done.done = 0;
 #else
 
@@ -457,7 +412,7 @@ void os_event_clear(os_event_t event)
 
 bool os_event_is_set(os_event_t event)
 {
-#ifdef USE_CUSTOM_COMPLETION
+#ifdef CONFIG_PREEMPT_RT_FULL
     unsigned long flags;
     int ret = 1;
 
@@ -473,6 +428,7 @@ bool os_event_is_set(os_event_t event)
 
 bool os_event_try_wait(os_event_t event)
 {
+#ifdef CONFIG_PREEMPT_RT_FULL
     unsigned long flags;
     int ret = 1;
 
@@ -484,6 +440,18 @@ bool os_event_try_wait(os_event_t event)
     spin_unlock_irqrestore(&event->done.wait.lock, flags);
 
     return ret;
+#else
+    bool ret;
+    bool real_ret = false;
+
+    do {
+        ret = try_wait_for_completion(&event->done);
+        if (ret)
+            real_ret = ret;
+    } while (ret != false);
+
+    return real_ret;
+#endif
 }
 
 /* @timeout: -1: wait for ever; 0: no wait; >0: wait for @timeout ms */
@@ -498,7 +466,10 @@ int32_t os_event_wait(os_event_t event, int32_t timeout)
     else
         expire = msecs_to_jiffies(timeout);
 
-    ret = wait_and_clear(&event->done, expire, TASK_KILLABLE);
+    ret = wait_for_completion_killable_timeout(&event->done, expire);
+
+    // clear event
+    while(try_wait_for_completion(&event->done)) {}
 
     if (ret > INT_MAX)
         ret = 1;
@@ -522,9 +493,16 @@ int32_t os_event_wait_for_multiple(os_event_t events[], int num_events,
         expire = msecs_to_jiffies(timeout);
 
     for (i = 0; i < num_events; i++) {
+#if (defined(CONFIG_PREEMPT_RT) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)) \
+    || LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
+        events[i]->waitq.task = current;
+        INIT_LIST_HEAD(&events[i]->waitq.task_list);
+        prepare_to_swait_exclusive(&events[i]->done.wait, &events[i]->waitq, TASK_KILLABLE);
+#else
         init_waitqueue_entry(&events[i]->waitq, current);
         /* add ourselves into wait queue */
         add_wait_queue(&events[i]->done.wait, &events[i]->waitq);
+#endif
     }
 
     got_event = false;
@@ -548,10 +526,17 @@ int32_t os_event_wait_for_multiple(os_event_t events[], int num_events,
         }
     }
 
+#if (defined(CONFIG_PREEMPT_RT) && LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)) \
+    || LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
+    for (i = 0; i < num_events; i++) {
+        finish_swait(&events[i]->done.wait, &events[i]->waitq);
+    }
+#else
     __set_current_state(TASK_RUNNING);
     for (i = 0; i < num_events; i++) {
         remove_wait_queue(&events[i]->done.wait, &events[i]->waitq);
     }
+#endif
 
     return ret;
 }
@@ -629,7 +614,7 @@ void *os_malloc(size_t size)
     size_t          memsize = sizeof (*mem) + size;
     unsigned char   mtype;
     unsigned long   kmalloc_max_size;
-
+    
     if (size == 0) {
         return (0);
     }
@@ -654,10 +639,10 @@ void *os_malloc(size_t size)
     if (!mem) {
         return (0);
     }
-
+    
     mem->mtype = mtype;
     mem->msize = memsize;
-
+    
     return mem->dat;
 }
 

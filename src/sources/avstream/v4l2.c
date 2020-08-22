@@ -24,10 +24,6 @@
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-common.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
-#define VFL_TYPE_VIDEO VFL_TYPE_GRABBER
-#endif
-
 #include "ospi/ospi.h"
 
 #include "capture.h"
@@ -1528,11 +1524,11 @@ static long xi_compat_ioctl32(struct file *file, unsigned int cmd,
 #endif
 
 static const struct v4l2_file_operations xi_fops = {
-    .owner          = THIS_MODULE,
+    .owner		    = THIS_MODULE,
     .open           = xi_open,
     .read           = xi_read,
     .release        = xi_close,
-    .poll           = xi_poll,
+    .poll		    = xi_poll,
     .unlocked_ioctl = xi_ioctl,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,0))
 #ifdef CONFIG_COMPAT
@@ -1567,14 +1563,14 @@ static const struct v4l2_ioctl_ops xi_ioctl_ops = {
                               = vidioc_enum_frameintervals,
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0))
-    .vidioc_cropcap           = vidioc_cropcap,
-    .vidioc_s_crop            = vidioc_s_crop,
-    .vidioc_g_crop            = vidioc_g_crop,
+    .vidioc_cropcap      	  = vidioc_cropcap,
+    .vidioc_s_crop       	  = vidioc_s_crop,
+    .vidioc_g_crop       	  = vidioc_g_crop,
 #endif
 };
 
 static struct video_device xi_template = {
-    .name           = VIDEO_CAP_DRIVER_NAME,
+    .name		    = VIDEO_CAP_DRIVER_NAME,
     /*
      * The device_caps was added in version 4.7 .
      * And has been checked since 5.4 in drivers/media/v4l2-core/v4l2-dev.c:863
@@ -1583,8 +1579,8 @@ static struct video_device xi_template = {
     .device_caps    = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING,
 #endif
     .fops           = &xi_fops,
-    .ioctl_ops      = &xi_ioctl_ops,
-    .release        = video_device_release,
+    .ioctl_ops 	    = &xi_ioctl_ops,
+    .release	    = video_device_release,
 };
 
 static int mw_device_init(struct mw_device *mw_dev, struct xi_v4l2_dev *dev)
@@ -1667,7 +1663,11 @@ static int xi_v4l2_register_channel(struct xi_v4l2_dev *dev, int iChannel)
     vch->vfd = vfd;
     video_set_drvdata(vfd, vch);
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,7,0))
+    ret = video_register_device(vfd, VFL_TYPE_GRABBER, -1);
+#else
     ret = video_register_device(vfd, VFL_TYPE_VIDEO, -1);
+#endif
     if (ret < 0)
         goto rel_vdev;
 

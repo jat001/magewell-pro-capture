@@ -117,7 +117,8 @@ static int mw_event_dev_release(struct inode *inode, struct file *filp)
 
     os_free(fh);
 
-    up_write(&fh->io_sem);
+    // We can't call this here as fh is freed.
+    //up_write(&fh->io_sem);
 
     return ret;
 }
