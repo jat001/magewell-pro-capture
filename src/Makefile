@@ -45,6 +45,7 @@ else
 endif
 ProCaptureLib.o:
 	cp $(ProCaptureLibFile) ProCaptureLib.o
+	touch .ProCaptureLib.o.cmd
 
 endif
 
