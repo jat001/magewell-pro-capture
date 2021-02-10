@@ -13,6 +13,7 @@
 
 struct file *linux_file_open(const char *path, int flags, int mode)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
     struct file *filp = NULL;
     mm_segment_t oldfs;
 
@@ -22,6 +23,9 @@ struct file *linux_file_open(const char *path, int flags, int mode)
     set_fs(oldfs);
 
     return filp;
+#else
+    return filp_open(path, flags, mode);
+#endif
 }
 
 void linux_file_close(struct file *file)
